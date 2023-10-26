@@ -1,0 +1,32 @@
+<.header>
+  Stats
+  <:actions>
+    <.link href={~p"/stats/download"} method="post">
+      <.button>
+        <.icon name="hero-arrow-down-tray-solid" class="h-5 w-5" /> Download Stats
+      </.button>
+    </.link>
+    <.link patch={~p"/new"}>
+      <.button>New Link</.button>
+    </.link>
+  </:actions>
+</.header>
+
+<.table id="links" rows={@streams.links}>
+  <:col :let={{_id, link}} label="URL">
+    <%= url(~p"/#{link.slug}") %>
+  </:col>
+  <:col :let={{_id, link}} label="Redirect To"><%= link.redirect_url %></:col>
+  <:col :let={{_id, link}} label="Visits"><%= link.visits_count %></:col>
+</.table>
+
+<.modal :if={@live_action in [:new, :edit]} id="link-modal" show on_cancel={JS.patch(~p"/stats")}>
+  <.live_component
+    module={UmbrellaWeb.LinkLive.FormComponent}
+    id={@link.id || :new}
+    title={@page_title}
+    action={@live_action}
+    link={@link}
+    patch={~p"/stats"}
+  />
+</.modal>

@@ -1,0 +1,79 @@
+version: "3.8"
+name: shortener-umbrella-k6
+
+services:
+  influxdb:
+    image: influxdb:1.8
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DB=k6
+
+  grafana:
+    image: grafana/grafana:9.3.8
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+    volumes:
+      - ./grafana:/etc/grafana/provisioning/
+
+  k6:
+    image: grafana/k6:latest
+    command: run /scripts/redirects.js
+    environment:
+      - K6_OUT=influxdb=http://influxdb:8086/k6
+    volumes:
+      - ./scripts:/scripts
+    depends_on:
+      app-prod:
+        condition: service_started
+
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=umbrella_prod
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app-prod-init-db:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        /app/bin/migrate &&
+        /app/bin/umbrella eval 'Application.ensure_all_started(:umbrella) && Umbrella.Links.create_link(%{slug: "GkOu8gbocVL", redirect_url: "https://elixir-lang.org" })'
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      - SECRET_KEY_BASE=KaOSBkKqXnX5LaZO6P51Ds+i3dHYXsf5KP01oI4GrSy3tmu8hPBXa1yKW8HLB1oW
+      - DATABASE_URL=ecto://postgres:postgres@postgres/umbrella_prod
+      - PHX_HOST=app-prod
+      - DATABASE_APP_NAME=shortener_prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app-prod:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - SECRET_KEY_BASE=KaOSBkKqXnX5LaZO6P51Ds+i3dHYXsf5KP01oI4GrSy3tmu8hPBXa1yKW8HLB1oW
+      - DATABASE_URL=ecto://postgres:postgres@postgres/umbrella_prod
+      - PHX_HOST=app-prod
+      - DATABASE_APP_NAME=shortener_prod
+    depends_on:
+      app-prod-init-db:
+        condition: service_completed_successfully

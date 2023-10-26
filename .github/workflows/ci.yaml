@@ -1,0 +1,107 @@
+name: Umbrella CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-branch-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BRANCH_REF: ${{ github.event.pull_request.number || github.ref_name }}
+
+jobs:
+  quality_assurance:
+    services:
+      db:
+        image: postgres:14
+        ports: [ '5432:5432' ]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    runs-on: ubuntu-latest
+    name: Quality Assurance
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Restore deps cache
+        uses: actions/cache/restore@v3
+        id: cache-restore-deps
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Save deps cache
+        uses: actions/cache/save@v3
+        if: steps.cache-restore-deps.outputs.cache-hit != 'true'
+        with:
+          path: deps
+          key: ${{ steps.cache-restore-deps.outputs.cache-primary-key }}
+
+      - name: Restore dev compilation build Cache
+        uses: actions/cache/restore@v3
+        id: cache-restore-build-dev
+        with:
+          path: _build/dev
+          key: ${{ runner.os }}-build-dev-${{ env.BRANCH_REF }}
+          restore-keys: |
+            ${{ runner.os }}-build-dev-
+
+      - name: Compiles without warnings
+        run: mix compile --warnings-as-errors
+
+      - name: Check Formatting
+        run: mix format --check-formatted
+
+      - name: Save dev compilation build cache
+        uses: actions/cache/save@v3
+        if: always()
+        with:
+          path: _build/dev
+          key: ${{ steps.cache-restore-build-dev.outputs.cache-primary-key }}
+
+      - name: Restore test compilation build Cache
+        uses: actions/cache/restore@v3
+        id: cache-restore-build-test
+        with:
+          path: _build/test
+          key: ${{ runner.os }}-build-test-${{ env.BRANCH_REF }}
+          restore-keys: |
+            ${{ runner.os }}-build-test-
+
+      - name: Run Test Umbrella
+        run: mix test
+        env:
+          MIX_ENV: test
+
+      - name: Save test compilation build cache
+        uses: actions/cache/save@v3
+        if: always()
+        with:
+          path: _build/test
+          key: ${{ steps.cache-restore-build-test.outputs.cache-primary-key }}
